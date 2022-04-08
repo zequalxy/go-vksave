@@ -6,31 +6,38 @@ type ImageResponse struct {
 			MessageID  int `json:"message_id"`
 			FromID     int `json:"from_id"`
 			Attachment struct {
-				Type  string `json:"type"`
+				Type  string `json:"-"`
 				Photo struct {
-					AlbumID   int    `json:"album_id"`
-					Date      int    `json:"date"`
-					ID        int    `json:"id"`
-					OwnerID   int    `json:"owner_id"`
-					AccessKey string `json:"access_key"`
-					Sizes     []struct {
-						Height int    `json:"height"`
-						URL    string `json:"url"`
-						Type   string `json:"type"`
-						Width  int    `json:"width,omitempty"`
-					} `json:"sizes"`
-					Text    string `json:"text"`
-					HasTags bool   `json:"has_tags"`
+					AlbumID   int     `json:"-"`
+					Date      int     `json:"-"`
+					ID        int     `json:"-"`
+					OwnerID   int     `json:"-"`
+					AccessKey string  `json:"-"`
+					Sizes     []Sizes `json:"sizes"`
+					Text      string  `json:"-"`
+					HasTags   bool    `json:"-"`
 				} `json:"photo"`
 			} `json:"attachment"`
 		} `json:"items"`
 		NextFrom string `json:"next_from"`
 		Profiles []struct {
-			ID              int    `json:"id"`
-			FirstName       string `json:"first_name"`
-			LastName        string `json:"last_name"`
-			CanAccessClosed bool   `json:"can_access_closed"`
-			IsClosed        bool   `json:"is_closed"`
-		} `json:"profiles"`
+			ID              int    `json:"-"`
+			FirstName       string `json:"-"`
+			LastName        string `json:"-"`
+			CanAccessClosed bool   `json:"-"`
+			IsClosed        bool   `json:"-"`
+		} `json:"-"`
 	} `json:"response"`
 }
+type Sizes struct {
+	Height int    `json:"height"`
+	URL    string `json:"url"`
+	Type   string `json:"type"`
+	Width  int    `json:"width,omitempty"`
+}
+
+type ByHeight []Sizes
+
+func (b ByHeight) Len() int           { return len(b) }
+func (b ByHeight) Less(i, j int) bool { return b[i].Height < b[j].Height }
+func (b ByHeight) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }

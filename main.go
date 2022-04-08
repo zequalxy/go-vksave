@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -26,7 +27,7 @@ const (
 )
 
 func download(url string) {
-	fileName := "D:/GoLandProjects/go-vksave" + "/" + url[strings.LastIndex(url, "/")+1:strings.LastIndex(url, "/")+16]
+	fileName := "img/" + url[strings.LastIndex(url, "/")+1:strings.LastIndex(url, "/")+16]
 	output, err := os.Create(fileName)
 	defer output.Close()
 
@@ -41,10 +42,25 @@ func download(url string) {
 
 func main() {
 	fmt.Println("hello world")
+	ir := getImages("")
+	sortPhotoBySizes(&ir)
+	for _, item := range ir.Response.Items {
+		download(item.Attachment.Photo.Sizes[0].URL)
+	}
+}
+
+func sortPhotoBySizes(ir *models.ImageResponse) {
+	for _, item := range ir.Response.Items {
+		sort.Sort(sort.Reverse(models.ByHeight(item.Attachment.Photo.Sizes)))
+	}
+
+}
+
+func getImages(startWith string) models.ImageResponse {
 	resp, err := http.Get(MethodURL + "messages.getHistoryAttachments?v=5.131&access_token=" + TOKEN +
 		"&media_type=photo" +
 		"&peer_id=2000000199" +
-		"&count=20")
+		"&count=200")
 	body, err := ioutil.ReadAll(resp.Body)
 	//err := exec.Command("rundll32", "url.dll,FileProtocolHandler", AUTHORIZE).Start()
 	if err != nil {
@@ -54,13 +70,5 @@ func main() {
 	if err := json.Unmarshal(body, &imageResp); err != nil {
 		panic(err)
 	}
-
-	fmt.Println(string(body))
-	//download(imageResp.Response.Items[0].Attachment.Photo.Sizes[0].URL)
-}
-
-func getMaxSizePhotoUrl(ir *models.ImageResponse) string {
-	url := ""
-	items := ir.Response.Items
-	return url
+	return imageResp
 }
