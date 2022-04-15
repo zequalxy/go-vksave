@@ -1,16 +1,28 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"go-vksave/models"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
+
+var tkn, chatId string
+var flag = Flag{false}
 
 const (
 	ENDMESSAGE = "LastURLs"
@@ -27,6 +39,27 @@ const (
 		"&state=123456"
 )
 
+func parseToken(token string) {
+	t := strings.Split(token, "access_token=")[1]
+	tkn = strings.Split(t, "&")[0]
+}
+
+func parseChatId(chatUrl string) {
+	chatId = strings.Split(chatUrl, "sel=")[1]
+	if chatId[0] == 'c' {
+		i, _ := strconv.Atoi(chatId[1:])
+		i += 2000000000
+		chatId = strconv.Itoa(i)
+	}
+}
+
+func startDownload(c *gin.Context) {
+	parseToken(c.Request.FormValue("token"))
+	parseChatId(c.Request.FormValue("chatId"))
+	start()
+	c.Redirect(http.StatusFound, "/")
+}
+
 func generator(out chan string) {
 	start := ""
 	for {
@@ -39,34 +72,8 @@ func generator(out chan string) {
 		for _, item := range ir.Response.Items {
 			out <- item.Attachment.Photo.Sizes[0].URL
 		}
+		start = ir.Response.NextFrom
 	}
-}
-
-func download(url string) {
-	fileName := "img/" + url[strings.LastIndex(url, "/")+1:strings.LastIndex(url, "/")+16]
-	output, err := os.Create(fileName)
-	defer output.Close()
-
-	response, err := http.Get(url)
-	if err != nil {
-		fmt.Println("Error while downloading", url, "-", err)
-		return
-	}
-	defer response.Body.Close()
-	io.Copy(output, response.Body)
-}
-
-func main() {
-	fmt.Println("hello world")
-	ir := getImages("")
-	sortPhotoBySizes(&ir)
-	for _, item := range ir.Response.Items {
-		download(item.Attachment.Photo.Sizes[0].URL)
-	}
-	var startWith string = ir.Response.NextFrom
-	ir2 := getImages(startWith)
-	fmt.Println(len(ir.Response.Items))
-	fmt.Println(len(ir2.Response.Items))
 }
 
 func sortPhotoBySizes(ir *models.ImageResponse) {
@@ -77,13 +84,12 @@ func sortPhotoBySizes(ir *models.ImageResponse) {
 }
 
 func getImages(startWith string) models.ImageResponse {
-	resp, err := http.Get(MethodURL + TOKEN +
+	resp, err := http.Get(MethodURL + tkn +
 		"&media_type=photo" +
-		"&peer_id=2000000199" +
+		"&peer_id=" + chatId + // 2000000114
 		"&count=200" +
 		"&start_from=" + startWith)
 	body, err := ioutil.ReadAll(resp.Body)
-	//err := exec.Command("rundll32", "url.dll,FileProtocolHandler", AUTHORIZE).Start()
 	if err != nil {
 		panic(err)
 	}
@@ -92,4 +98,141 @@ func getImages(startWith string) models.ImageResponse {
 		panic(err)
 	}
 	return imageResp
+}
+
+func auth(c *gin.Context) {
+	var err error
+
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", AUTHORIZE).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", AUTHORIZE).Start()
+	case "darwin":
+		err = exec.Command("open", AUTHORIZE).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	c.Redirect(http.StatusFound, "/")
+}
+
+func start() {
+	links := make(chan string)
+	quit := make(chan bool)
+	b := new(models.Balancer)
+	b.Init(links)
+
+	keys := make(chan os.Signal, 1)
+	signal.Notify(keys, os.Interrupt)
+
+	go b.Balance(quit)
+	go generator(links)
+
+	fmt.Println("Начинаем загрузку изображений")
+
+	for {
+		select {
+		case <-keys:
+			fmt.Println("CTRL-C: Ожидаю завершения активных загрузок")
+			quit <- true
+		case <-quit:
+			fmt.Println("Загрузки завершены!")
+			err := zipImg()
+			if err != nil {
+				return
+			}
+			flag.Flag = true
+			return
+
+		}
+	}
+}
+
+func zipImg() error {
+	source := "img"
+	zipfile, err := os.Create("./assets/img.zip")
+	if err != nil {
+		return err
+	}
+	defer zipfile.Close()
+
+	archive := zip.NewWriter(zipfile)
+	defer archive.Close()
+
+	info, err := os.Stat(source)
+	if err != nil {
+		return nil
+	}
+
+	var baseDir string
+	if info.IsDir() {
+		baseDir = filepath.Base(source)
+	}
+
+	filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		if baseDir != "" {
+			header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, source))
+		}
+
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			header.Method = zip.Deflate
+		}
+
+		writer, err := archive.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(writer, file)
+		return err
+	})
+
+	return err
+}
+
+type Flag struct {
+	Flag bool
+}
+
+func main() {
+	fmt.Println("hello, friend")
+	router := gin.Default()
+	router.LoadHTMLGlob("templates/*")
+	router.Static("/assets", "./assets")
+	//router.StaticFile("/assets/images", "./assets/images")
+
+	router.GET("/", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "index", flag)
+	})
+	router.GET("/auth", auth)
+	router.POST("/download", startDownload)
+
+	err := router.Run(":8080")
+	if err != nil {
+		return
+	}
+
 }
