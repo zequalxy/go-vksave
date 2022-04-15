@@ -219,6 +219,10 @@ type Flag struct {
 
 func main() {
 	fmt.Println("hello, friend")
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("port must be set")
+	}
 	router := gin.Default()
 	router.LoadHTMLGlob("templates/*")
 	router.Static("/assets", "./assets")
@@ -230,7 +234,7 @@ func main() {
 	router.GET("/auth", auth)
 	router.POST("/download", startDownload)
 
-	err := router.Run()
+	err := router.Run(":" + port)
 	if err != nil {
 		return
 	}
