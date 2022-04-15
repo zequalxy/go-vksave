@@ -230,7 +230,7 @@ func main() {
 	router.GET("/auth", auth)
 	router.POST("/download", startDownload)
 
-	err := router.Run(":8080")
+	err := router.Run()
 	if err != nil {
 		return
 	}
