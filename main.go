@@ -1,32 +1,21 @@
 package main
 
 import (
-	"archive/zip"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"go-vksave/models"
-	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
-
-var tkn, chatId string
-var flag = Flag{false}
 
 const (
 	ENDMESSAGE = "LastURLs"
-	TOKEN      = "3e9649476875cd14154ec4ad0891e41589ae282163dd2e3032958588ad51c72c16f8f113908abec966143"
 	MethodURL  = "https://api.vk.com/method/messages.getHistoryAttachments?v=5.131&access_token="
 	API_ID     = "2685278"
 	AUTHORIZE  = "https://oauth.vk.com/authorize?" +
@@ -39,25 +28,31 @@ const (
 		"&state=123456"
 )
 
+var (
+	//https://oauth.vk.com/blank.html#access_token=2d494caf3f48a847081d3c7e429936ae3d2403504e0d8e9328765dbe1c8d3cdc27c192084c8fb7cb2915c&expires_in=0&user_id=20164660&state=123456
+	TOKEN   = ""
+	IMGDIR  = "img"
+	CHAT_ID = "" //https://vk.com/im?sel=c199
+)
+
+func init() {
+	flag.StringVar(&TOKEN, "t", TOKEN, "токен")
+	flag.StringVar(&CHAT_ID, "c", CHAT_ID, "id чата")
+	flag.StringVar(&IMGDIR, "d", IMGDIR, "директория для картинок")
+}
+
 func parseToken(token string) {
 	t := strings.Split(token, "access_token=")[1]
-	tkn = strings.Split(t, "&")[0]
+	TOKEN = strings.Split(t, "&")[0]
 }
 
 func parseChatId(chatUrl string) {
-	chatId = strings.Split(chatUrl, "sel=")[1]
-	if chatId[0] == 'c' {
-		i, _ := strconv.Atoi(chatId[1:])
+	CHAT_ID = strings.Split(chatUrl, "sel=")[1]
+	if CHAT_ID[0] == 'c' {
+		i, _ := strconv.Atoi(CHAT_ID[1:])
 		i += 2000000000
-		chatId = strconv.Itoa(i)
+		CHAT_ID = strconv.Itoa(i)
 	}
-}
-
-func startDownload(c *gin.Context) {
-	parseToken(c.Request.FormValue("token"))
-	parseChatId(c.Request.FormValue("chatId"))
-	start()
-	c.Redirect(http.StatusFound, "/")
 }
 
 func generator(out chan string) {
@@ -84,9 +79,9 @@ func sortPhotoBySizes(ir *models.ImageResponse) {
 }
 
 func getImages(startWith string) models.ImageResponse {
-	resp, err := http.Get(MethodURL + tkn +
+	resp, err := http.Get(MethodURL + TOKEN +
 		"&media_type=photo" +
-		"&peer_id=" + chatId + // 2000000114
+		"&peer_id=" + CHAT_ID + // 2000000114
 		"&count=200" +
 		"&start_from=" + startWith)
 	body, err := ioutil.ReadAll(resp.Body)
@@ -100,26 +95,15 @@ func getImages(startWith string) models.ImageResponse {
 	return imageResp
 }
 
-func auth(c *gin.Context) {
-	var err error
-
-	switch runtime.GOOS {
-	case "linux":
-		err = exec.Command("xdg-open", AUTHORIZE).Start()
-	case "windows":
-		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", AUTHORIZE).Start()
-	case "darwin":
-		err = exec.Command("open", AUTHORIZE).Start()
-	default:
-		err = fmt.Errorf("unsupported platform")
+func main() {
+	//разберем флаги
+	flag.Parse()
+	parseToken(TOKEN)
+	parseChatId(CHAT_ID)
+	//создадим директорию для загрузки, если её еще нет
+	if err := os.MkdirAll(IMGDIR, 666); err != nil {
+		panic(err)
 	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	c.Redirect(http.StatusFound, "/")
-}
-
-func start() {
 	links := make(chan string)
 	quit := make(chan bool)
 	b := new(models.Balancer)
@@ -140,103 +124,8 @@ func start() {
 			quit <- true
 		case <-quit:
 			fmt.Println("Загрузки завершены!")
-			err := zipImg()
-			if err != nil {
-				return
-			}
-			flag.Flag = true
 			return
 
 		}
 	}
-}
-
-func zipImg() error {
-	source := "img"
-	zipfile, err := os.Create("./assets/img.zip")
-	if err != nil {
-		return err
-	}
-	defer zipfile.Close()
-
-	archive := zip.NewWriter(zipfile)
-	defer archive.Close()
-
-	info, err := os.Stat(source)
-	if err != nil {
-		return nil
-	}
-
-	var baseDir string
-	if info.IsDir() {
-		baseDir = filepath.Base(source)
-	}
-
-	filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		if baseDir != "" {
-			header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, source))
-		}
-
-		if info.IsDir() {
-			header.Name += "/"
-		} else {
-			header.Method = zip.Deflate
-		}
-
-		writer, err := archive.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		_, err = io.Copy(writer, file)
-		return err
-	})
-
-	return err
-}
-
-type Flag struct {
-	Flag bool
-}
-
-func main() {
-	fmt.Println("hello, friend")
-	port := os.Getenv("PORT")
-	if port == "" {
-		log.Fatal("port must be set")
-	}
-	router := gin.Default()
-	router.LoadHTMLGlob("templates/*")
-	router.Static("/assets", "./assets")
-	//router.StaticFile("/assets/images", "./assets/images")
-
-	router.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index", flag)
-	})
-	router.GET("/auth", auth)
-	router.POST("/download", startDownload)
-
-	err := router.Run(":" + port)
-	if err != nil {
-		return
-	}
-
 }
