@@ -17,22 +17,12 @@ import (
 const (
 	ENDMESSAGE = "LastURLs"
 	MethodURL  = "https://api.vk.com/method/messages.getHistoryAttachments?v=5.131&access_token="
-	API_ID     = "2685278"
-	AUTHORIZE  = "https://oauth.vk.com/authorize?" +
-		"client_id=" + API_ID +
-		"&display=popup" +
-		"&redirect_uri=https://oauth.vk.com/blank.html" +
-		"&scope=messages,offline" +
-		"&response_type=token" +
-		"&v=5.131" +
-		"&state=123456"
 )
 
 var (
-	//https://oauth.vk.com/blank.html#access_token=2d494caf3f48a847081d3c7e429936ae3d2403504e0d8e9328765dbe1c8d3cdc27c192084c8fb7cb2915c&expires_in=0&user_id=20164660&state=123456
 	TOKEN   = ""
 	IMGDIR  = "img"
-	CHAT_ID = "" //https://vk.com/im?sel=c199
+	CHAT_ID = ""
 )
 
 func init() {
@@ -81,7 +71,7 @@ func sortPhotoBySizes(ir *models.ImageResponse) {
 func getImages(startWith string) models.ImageResponse {
 	resp, err := http.Get(MethodURL + TOKEN +
 		"&media_type=photo" +
-		"&peer_id=" + CHAT_ID + // 2000000114
+		"&peer_id=" + CHAT_ID +
 		"&count=200" +
 		"&start_from=" + startWith)
 	body, err := ioutil.ReadAll(resp.Body)
@@ -96,11 +86,9 @@ func getImages(startWith string) models.ImageResponse {
 }
 
 func main() {
-	//разберем флаги
 	flag.Parse()
 	parseToken(TOKEN)
 	parseChatId(CHAT_ID)
-	//создадим директорию для загрузки, если её еще нет
 	if err := os.MkdirAll(IMGDIR, 666); err != nil {
 		panic(err)
 	}
