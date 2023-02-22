@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go-vksave/models"
-	"io/ioutil"
+	"github.com/zequalxy/go-vksave/models"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -74,7 +74,7 @@ func getImages(startWith string) models.ImageResponse {
 		"&peer_id=" + CHAT_ID +
 		"&count=200" +
 		"&start_from=" + startWith)
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		panic(err)
 	}
